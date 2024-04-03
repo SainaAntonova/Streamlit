@@ -5,6 +5,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import plotly.express as px
 import altair as alt
+import datetime as dt
 
 
 st.markdown(
@@ -23,6 +24,9 @@ tips['time_order'] = pd.to_datetime(np.random.uniform(pd.to_datetime('2023-01-01
                                                 pd.to_datetime('2023-01-31').timestamp(),
                                                 size=len(tips)), unit='s').date
 tips['time_order'] = pd.to_datetime(tips['time_order'])
+tips['weekend'] = tips.day.isin(['Sat','Sun'])
+tips['weekend'] = tips['weekend'].astype(int)
+tips['tip_percentage']= np.round(100*(tips['tip']/tips['total_bill']), 1)
 
 st.write("""### Данные""")
 st.write(tips)
@@ -37,7 +41,7 @@ option = st.sidebar.selectbox(
      'Взаимосвязь размера счета, чаевых и порции',
      'Взаимосвязь между днем недели и размером счета',
      'Сумма счетов по дням',
-     'Гистограммы чаевых за обед и ужин',
+     'Чаевые за обед и ужин',
      'Тепловая карта корреляций числовых переменных',
      'Взаимосвязь размера счета и чаевых, с разделением по курящим/некурящим'))
 
@@ -51,7 +55,12 @@ if option == 'График динамики чаевых в зависимост
         xaxis=dict(tickangle=45),
     )
     st.plotly_chart(fig)
-
+    
+    tips_dynamics['time_order_timestamp'] = tips_dynamics['time_order'].astype(int) // 10**9
+    min_date = dt.datetime.fromtimestamp(tips_dynamics['time_order_timestamp'].min())
+    max_date = dt.datetime.fromtimestamp(tips_dynamics['time_order_timestamp'].max())
+    date_range = st.slider("Выберите интервал дат:", min_value=min_date, max_value=max_date, value=(min_date, max_date))
+    
     
 
 elif option == 'Распределение значений размера счетов':
@@ -71,37 +80,64 @@ elif option == 'Взаимосвязь размера счета, чаевых �
 elif option == 'Взаимосвязь между днем недели и размером счета':
     st.write('Взаимосвязь между днем недели и размером счета')
     st.scatter_chart(data=tips, x='day', y='tip', color='sex')
+    st.write('В процентном соотношении. Общее ')
+    a=pd.DataFrame(tips['day'].value_counts())
+    a.reset_index(inplace=True)
+    fig = px.pie(data_frame=a, values='count', names='day', hole=0.3)
+    st.plotly_chart(fig)
+
+    male_tips = tips[tips['sex'] == 'Male']
+    male_counts = male_tips['day'].value_counts().reset_index()
+    male_counts.columns = ['day', 'count']
+    fig_male = px.pie(male_counts, values='count', names='day', title='Pie Chart. Мужчины', hole=0.3)
+    st.plotly_chart(fig_male)
+
+    female_tips = tips[tips['sex'] == 'Female']
+    female_counts = female_tips['day'].value_counts().reset_index()
+    female_counts.columns = ['day', 'count']
+    fig_female = px.pie(female_counts, values='count', names='day', title='Pie Chart. Женщины', hole=0.3)
+    st.plotly_chart(fig_female)
+    
+
 
 elif option == 'Сумма счетов по дням':
     st.write('Сумма счетов по дням')
     fig = px.box(tips, x='day', y='total_bill', color='time')
     st.plotly_chart(fig)
 
-elif option == 'Гистограммы чаевых за обед и ужин':
-    st.write("Гистограммы чаевых за обед и ужин")
-    time_option = st.radio("Выберите время:", ('Обед', 'Ужин'))
-    filtered_tips = tips[(tips['time'] == ('Lunch' if time_option == 'Обед' else 'Dinner'))]
-    fig, ax = plt.subplots()
-    sns.histplot(data=filtered_tips, x='tip', bins=10, color='skyblue', ax=ax)
-    ax.set_title(f'Чаевые за {time_option.lower()}')
-    ax.set_xlabel('Размер чаевых')
-    ax.set_ylabel('Частота')
-    st.pyplot(fig)
+elif option == 'Чаевые за обед и ужин':
+    option = st.sidebar.selectbox('**Выберите вид графика**:',
+                                  ('Гистограммы чаевых за обед и ужин', 
+                                  'Круговая диаграмма чаевых за обед и ужин'))
+    if option == 'Гистограммы чаевых за обед и ужин':
+        st.write("Гистограммы чаевых за обед и ужин")
+        time_option = st.radio("Выберите время:", ('Обед', 'Ужин'))
+        filtered_tips = tips[(tips['time'] == ('Lunch' if time_option == 'Обед' else 'Dinner'))]
+        fig, ax = plt.subplots()
+        sns.histplot(data=filtered_tips, x='tip', bins=10, color='skyblue', ax=ax)
+        ax.set_title(f'Чаевые за {time_option.lower()}')
+        ax.set_xlabel('Размер чаевых')
+        ax.set_ylabel('Частота')
+        st.pyplot(fig)
+    elif option == 'Круговая диаграмма чаевых за обед и ужин':
+        st.write("Круговая диаграмма чаевых за обед и ужин")
+        fig=px.pie(tips, values='tip_percentage', names='time', hole=0.5)
+        st.plotly_chart(fig)
 
 elif option == 'Тепловая карта корреляций числовых переменных':
     st.write("Тепловая карта корреляций числовых переменных")
     numeric_columns = tips.select_dtypes(include='number')
-    correlation_matrix = numeric_columns.corr()
+    correlation_matrix = numeric_columns.corr().iloc[:, :9]
     correlation_df = correlation_matrix.stack().reset_index()
     correlation_df.columns = ['variable1', 'variable2', 'correlation']
     
     heatmap = alt.Chart(correlation_df).mark_rect().encode(
         x='variable1:O',
         y='variable2:O',
-        color='correlation:Q'
+        color=alt.Color('correlation:Q', scale=alt.Scale(scheme='viridis'))
     ).properties(
          width=500,
-        height=400
+        height=500
     ).configure_scale(
         bandPaddingInner=0.1
     )
